@@ -114,7 +114,7 @@ export default function MobileSocialPoster() {
     const handleOAuthMessage = (event: MessageEvent) => {
       if (event.data?.type === 'OAUTH_AUTH_RESULT') {
         const plat = (event.data.platform || connectModalPlatform || '').toLowerCase();
-        const platTitle = plat === 'youtube' ? 'YouTube' : plat === 'instagram' ? 'Instagram' : plat === 'facebook' ? 'Facebook' : plat === 'tiktok' ? 'TikTok' : plat.toUpperCase();
+        const platTitle = plat === 'youtube' ? 'YouTube' : plat === 'instagram' ? 'Instagram' : plat === 'facebook' ? 'Facebook' : 'TikTok';
 
         if (event.data.success) {
           setConnectStatusMsg({
@@ -201,7 +201,7 @@ export default function MobileSocialPoster() {
     if (!manualToken.trim() || !connectModalPlatform || !currentUser?.email) return;
     setIsConnectingManual(true);
     const plat = connectModalPlatform;
-    const platTitle = plat === 'youtube' ? 'YouTube' : plat === 'instagram' ? 'Instagram' : plat === 'facebook' ? 'Facebook' : plat === 'tiktok' ? 'TikTok' : plat.toUpperCase();
+    const platTitle = plat === 'youtube' ? 'YouTube' : plat === 'instagram' ? 'Instagram' : plat === 'facebook' ? 'Facebook' : 'TikTok';
 
     try {
       const res = await fetch('/api/auth/connect/manual', {

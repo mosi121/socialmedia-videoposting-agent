@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { publishToYouTube } from '@/lib/platforms/youtube';
 import { publishToInstagramReels, publishToFacebookPage } from '@/lib/platforms/meta';
 import { publishToTikTok } from '@/lib/platforms/tiktok';
-import { getSocialAccountsForUser } from '@/lib/supabase';
+import { getSocialAccountsForUser, supabaseAdmin } from '@/lib/supabase';
 
 export async function POST(req: NextRequest) {
   try {
