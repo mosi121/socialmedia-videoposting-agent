@@ -10,12 +10,7 @@ export function getBaseUrl(req?: NextRequest): string {
     return process.env.APP_URL.replace(/\/$/, '');
   }
 
-  // 2. Vercel preview or production deployment URL
-  if (process.env.VERCEL_URL) {
-    return `https://${process.env.VERCEL_URL.replace(/\/$/, '')}`;
-  }
-
-  // 3. Fallback to request headers
+  // 2. Prioritize incoming request host (matches the exact domain the user is visiting in their browser)
   if (req) {
     const forwardedHost = req.headers.get('x-forwarded-host');
     const forwardedProto = req.headers.get('x-forwarded-proto') || 'https';
@@ -32,6 +27,14 @@ export function getBaseUrl(req?: NextRequest): string {
     if (req.nextUrl?.origin) {
       return req.nextUrl.origin;
     }
+  }
+
+  // 3. Vercel deployment URL (fallback only when req is unavailable)
+  if (process.env.VERCEL_PROJECT_PRODUCTION_URL) {
+    return `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL.replace(/\/$/, '')}`;
+  }
+  if (process.env.VERCEL_URL) {
+    return `https://${process.env.VERCEL_URL.replace(/\/$/, '')}`;
   }
 
   // 4. Default fallback
