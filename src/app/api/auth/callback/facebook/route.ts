@@ -54,61 +54,117 @@ export async function GET(req: NextRequest) {
 
     // 3. Fetch user's Facebook Pages and connected Instagram accounts
     const pagesRes = await fetch(
-      `https://graph.facebook.com/v21.0/me/accounts?fields=id,name,access_token,instagram_business_account&access_token=${finalUserToken}`
+      `https://graph.facebook.com/v21.0/me/accounts?fields=id,name,access_token,instagram_business_account{id,username,name}&access_token=${finalUserToken}`
     );
     const pagesData = await pagesRes.json();
-    const pages = pagesData.data || [];
+    const rawPages = pagesData.data || [];
 
-    let connectedNames: string[] = [];
+    const formattedPages: any[] = [];
+    const instagramAccounts: any[] = [];
 
-    // Save Facebook Page(s) & Instagram accounts using saveSocialAccount
-    if (pages.length > 0 && userEmail) {
-      for (const page of pages) {
-        // Save Facebook Page
-        await saveSocialAccount({
-          userEmail,
-          platform: 'facebook',
-          accountName: page.name,
-          accountId: page.id,
-          accessToken: page.access_token || finalUserToken,
-        });
-        connectedNames.push(`FB: ${page.name}`);
+    // Parse and enrich all pages and linked Instagram accounts
+    for (const p of rawPages) {
+      let igData: any = null;
+      if (p.instagram_business_account?.id) {
+        const igId = p.instagram_business_account.id;
+        let igUsername = p.instagram_business_account.username || '';
 
-        // If Page is linked to Instagram Business account
-        if (page.instagram_business_account?.id) {
-          const igId = page.instagram_business_account.id;
-          let igUsername = page.name;
+        // If username not returned directly in nested field, fetch it
+        if (!igUsername) {
           try {
-            const igRes = await fetch(`https://graph.facebook.com/v21.0/${igId}?fields=username&access_token=${finalUserToken}`);
-            const igData = await igRes.json();
-            if (igData.username) igUsername = `@${igData.username}`;
+            const igRes = await fetch(
+              `https://graph.facebook.com/v21.0/${igId}?fields=username,name&access_token=${finalUserToken}`
+            );
+            const fetched = await igRes.json();
+            if (fetched.username) igUsername = fetched.username;
           } catch (e) {}
-
-          await saveSocialAccount({
-            userEmail,
-            platform: 'instagram',
-            accountName: igUsername,
-            accountId: igId,
-            accessToken: finalUserToken,
-          });
-          connectedNames.push(`IG: ${igUsername}`);
         }
+
+        const cleanUsername = igUsername ? (igUsername.startsWith('@') ? igUsername : `@${igUsername}`) : `@${p.name}`;
+        igData = {
+          id: igId,
+          username: cleanUsername,
+          pageId: p.id,
+          pageName: p.name,
+        };
+
+        instagramAccounts.push({
+          id: igId,
+          username: cleanUsername,
+          pageId: p.id,
+          pageName: p.name,
+          accessToken: p.access_token || finalUserToken,
+        });
       }
-    } else if (userEmail) {
-      // Save general Meta account if no specific pages exist yet
-      await saveSocialAccount({
-        userEmail,
-        platform: targetPlatform === 'facebook' ? 'facebook' : 'instagram',
-        accountName: 'Meta Account',
-        accessToken: finalUserToken,
+
+      formattedPages.push({
+        id: p.id,
+        name: p.name,
+        accessToken: p.access_token || finalUserToken,
+        instagram: igData,
       });
     }
 
-    const label = connectedNames.join(', ') || 'Meta Connected';
+    if (userEmail && formattedPages.length > 0) {
+      // 1. Save Facebook Pages to Supabase
+      const defaultPage = formattedPages[0];
+      await saveSocialAccount({
+        userEmail,
+        platform: 'facebook',
+        accountName: defaultPage.name,
+        accountId: defaultPage.id,
+        accessToken: defaultPage.accessToken,
+        metadata: {
+          user_access_token: finalUserToken,
+          pages: formattedPages,
+          selected_page_id: defaultPage.id,
+        },
+      });
+
+      // 2. Save Instagram Account(s) to Supabase
+      if (instagramAccounts.length > 0) {
+        const defaultIg = instagramAccounts[0];
+        await saveSocialAccount({
+          userEmail,
+          platform: 'instagram',
+          accountName: defaultIg.username,
+          accountId: defaultIg.id,
+          accessToken: defaultIg.accessToken,
+          metadata: {
+            user_access_token: finalUserToken,
+            accounts: instagramAccounts,
+            selected_ig_id: defaultIg.id,
+          },
+        });
+      }
+    } else if (userEmail) {
+      // Fallback if user authorized profile with no pages yet
+      await saveSocialAccount({
+        userEmail,
+        platform: 'facebook',
+        accountName: 'Meta Profile (No Pages Found)',
+        accessToken: finalUserToken,
+        metadata: {
+          user_access_token: finalUserToken,
+          pages: [],
+        },
+      });
+    }
+
+    const pagesCount = formattedPages.length;
+    const igCount = instagramAccounts.length;
+    const label = `Meta Connected (${pagesCount} FB Page${pagesCount === 1 ? '' : 's'}, ${igCount} IG Account${igCount === 1 ? '' : 's'})`;
 
     return new Response(
       `<html><body><script>
-        window.opener.postMessage({ type: 'OAUTH_AUTH_RESULT', success: true, platform: '${targetPlatform}', accountName: '${label}' }, '*');
+        window.opener.postMessage({
+          type: 'OAUTH_AUTH_RESULT',
+          success: true,
+          platform: 'meta',
+          accountName: '${label}',
+          pagesCount: ${pagesCount},
+          igCount: ${igCount}
+        }, '*');
         window.close();
       </script><p>${label} connected successfully! Closing...</p></body></html>`,
       { headers: { 'Content-Type': 'text/html' } }

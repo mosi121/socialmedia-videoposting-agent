@@ -44,6 +44,7 @@ export async function saveSocialAccount(params: {
   accessToken: string;
   refreshToken?: string;
   expiresAt?: number | null;
+  metadata?: Record<string, any>;
 }) {
   const email = params.userEmail.toLowerCase().trim();
   const plat = params.platform.toLowerCase().trim();
@@ -51,11 +52,17 @@ export async function saveSocialAccount(params: {
   // 1. Check for existing record for (platform, user_email)
   const { data: existingList } = await supabaseAdmin
     .from('social_accounts')
-    .select('id')
+    .select('id, metadata')
     .eq('platform', plat)
     .eq('metadata->>user_email', email);
 
-  const existingId = existingList?.[0]?.id;
+  const existingRow = existingList?.[0];
+  const existingId = existingRow?.id;
+  const mergedMetadata = {
+    ...(existingRow?.metadata || {}),
+    user_email: email,
+    ...(params.metadata || {}),
+  };
 
   if (existingId) {
     const { error } = await supabaseAdmin
@@ -67,6 +74,7 @@ export async function saveSocialAccount(params: {
         refresh_token: params.refreshToken || '',
         expires_at: params.expiresAt || null,
         is_connected: true,
+        metadata: mergedMetadata,
         updated_at: new Date().toISOString(),
       })
       .eq('id', existingId);
@@ -84,7 +92,7 @@ export async function saveSocialAccount(params: {
         refresh_token: params.refreshToken || '',
         expires_at: params.expiresAt || null,
         is_connected: true,
-        metadata: { user_email: email },
+        metadata: mergedMetadata,
         updated_at: new Date().toISOString(),
       })
       .select('id');

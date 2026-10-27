@@ -74,7 +74,7 @@ export default function MobileSocialPoster() {
   const [showPublishModal, setShowPublishModal] = useState(false);
 
   // OAuth Connect Modal State
-  const [connectModalPlatform, setConnectModalPlatform] = useState<'youtube' | 'instagram' | 'facebook' | 'tiktok' | null>(null);
+  const [connectModalPlatform, setConnectModalPlatform] = useState<'youtube' | 'instagram' | 'facebook' | 'tiktok' | 'meta' | null>(null);
   const [connectStatusMsg, setConnectStatusMsg] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
   const [manualToken, setManualToken] = useState('');
   const [isConnectingManual, setIsConnectingManual] = useState(false);
@@ -114,25 +114,40 @@ export default function MobileSocialPoster() {
     const handleOAuthMessage = (event: MessageEvent) => {
       if (event.data?.type === 'OAUTH_AUTH_RESULT') {
         const plat = (event.data.platform || connectModalPlatform || '').toLowerCase();
-        const platTitle = plat === 'youtube' ? 'YouTube' : plat === 'instagram' ? 'Instagram' : plat === 'facebook' ? 'Facebook' : 'TikTok';
 
         if (event.data.success) {
-          setConnectStatusMsg({
-            type: 'success',
-            text: `✓ ${platTitle} account connected successfully!`,
-          });
-          if (plat) {
-            setSelectedPlatforms((prev) => ({ ...prev, [plat]: true }));
+          if (plat === 'meta') {
+            const pCount = event.data.pagesCount || 0;
+            const igCount = event.data.igCount || 0;
+            setConnectStatusMsg({
+              type: 'success',
+              text: `✓ Meta connected (${pCount} FB Page${pCount === 1 ? '' : 's'}, ${igCount} IG Account${igCount === 1 ? '' : 's'})!`,
+            });
+            setSelectedPlatforms((prev) => ({
+              ...prev,
+              facebook: true,
+              instagram: igCount > 0,
+            }));
+          } else {
+            const platTitle = plat === 'youtube' ? 'YouTube' : plat === 'instagram' ? 'Instagram' : plat === 'facebook' ? 'Facebook' : 'TikTok';
+            setConnectStatusMsg({
+              type: 'success',
+              text: `✓ ${platTitle} account connected successfully!`,
+            });
+            if (plat) {
+              setSelectedPlatforms((prev) => ({ ...prev, [plat]: true }));
+            }
           }
+
           refreshAuthStatus();
           setTimeout(() => {
             setConnectModalPlatform(null);
             setConnectStatusMsg(null);
-          }, 1500);
+          }, 1600);
         } else {
           setConnectStatusMsg({
             type: 'error',
-            text: 'Not connected. Try later.',
+            text: event.data.error || 'Not connected. Try later.',
           });
         }
       }
@@ -149,7 +164,7 @@ export default function MobileSocialPoster() {
   };
 
   // Trigger OAuth Popup Modal
-  const handleOpenOAuthPopup = (platform: 'youtube' | 'instagram' | 'facebook' | 'tiktok') => {
+  const handleOpenOAuthPopup = (platform: 'youtube' | 'instagram' | 'facebook' | 'tiktok' | 'meta') => {
     setConnectStatusMsg(null);
     setManualToken('');
     setConnectModalPlatform(platform);
@@ -159,8 +174,8 @@ export default function MobileSocialPoster() {
     if (!connectModalPlatform || !currentUser?.email) return;
 
     let authEndpoint = `/api/auth/connect/youtube?email=${encodeURIComponent(currentUser.email)}`;
-    if (connectModalPlatform === 'instagram' || connectModalPlatform === 'facebook') {
-      authEndpoint = `/api/auth/connect/meta?email=${encodeURIComponent(currentUser.email)}&platform=${connectModalPlatform}`;
+    if (connectModalPlatform === 'meta' || connectModalPlatform === 'instagram' || connectModalPlatform === 'facebook') {
+      authEndpoint = `/api/auth/connect/meta?email=${encodeURIComponent(currentUser.email)}&platform=meta`;
     } else if (connectModalPlatform === 'tiktok') {
       authEndpoint = `/api/auth/connect/tiktok?email=${encodeURIComponent(currentUser.email)}`;
     }
@@ -194,6 +209,46 @@ export default function MobileSocialPoster() {
           }, 500);
         }
       }, 700);
+    }
+  };
+
+  // Switch Active Facebook Page
+  const handleSwitchMetaPage = async (pageId: string) => {
+    if (!currentUser?.email || !pageId) return;
+    try {
+      const res = await fetch('/api/auth/meta/select', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userEmail: currentUser.email,
+          pageId,
+        }),
+      });
+      if (res.ok) {
+        refreshAuthStatus();
+      }
+    } catch (e) {
+      console.error('Failed to switch Meta page', e);
+    }
+  };
+
+  // Switch Active Instagram Account
+  const handleSwitchMetaIg = async (igAccountId: string) => {
+    if (!currentUser?.email || !igAccountId) return;
+    try {
+      const res = await fetch('/api/auth/meta/select', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userEmail: currentUser.email,
+          igAccountId,
+        }),
+      });
+      if (res.ok) {
+        refreshAuthStatus();
+      }
+    } catch (e) {
+      console.error('Failed to switch Instagram account', e);
     }
   };
 
@@ -736,6 +791,71 @@ export default function MobileSocialPoster() {
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            {/* Meta Page & Account Selectors */}
+            {activePlatform === 'facebook' && (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 10px', backgroundColor: 'var(--bg-subtle)', borderRadius: '6px', border: '1px solid var(--border-medium)', marginBottom: '2px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <Facebook size={14} color="#1877F2" />
+                  <span style={{ fontSize: '11px', fontWeight: '800' }}>Post to Facebook Page:</span>
+                </div>
+                {authStatus?.facebook?.pages && authStatus.facebook.pages.length > 1 ? (
+                  <select
+                    value={authStatus.facebook.selectedPageId || ''}
+                    onChange={(e) => handleSwitchMetaPage(e.target.value)}
+                    className="input-minimal"
+                    style={{ width: 'auto', minWidth: '150px', padding: '3px 8px', fontSize: '11.5px', fontWeight: '700' }}
+                  >
+                    {authStatus.facebook.pages.map((p: any) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <span style={{ fontSize: '11.5px', fontWeight: '700', color: 'var(--text-primary)' }}>
+                    {authStatus?.facebook?.accountName || 'Active Page'}
+                  </span>
+                )}
+              </div>
+            )}
+
+            {activePlatform === 'instagram' && (
+              <>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 10px', backgroundColor: 'var(--bg-subtle)', borderRadius: '6px', border: '1px solid var(--border-medium)', marginBottom: '2px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <Instagram size={14} color="#C13584" />
+                    <span style={{ fontSize: '11px', fontWeight: '800' }}>Post to Instagram Account:</span>
+                  </div>
+                  {authStatus?.instagram?.accounts && authStatus.instagram.accounts.length > 1 ? (
+                    <select
+                      value={authStatus.instagram.selectedIgId || ''}
+                      onChange={(e) => handleSwitchMetaIg(e.target.value)}
+                      className="input-minimal"
+                      style={{ width: 'auto', minWidth: '150px', padding: '3px 8px', fontSize: '11.5px', fontWeight: '700' }}
+                    >
+                      {authStatus.instagram.accounts.map((a: any) => (
+                        <option key={a.id} value={a.id}>
+                          {a.username}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <span style={{ fontSize: '11.5px', fontWeight: '700', color: 'var(--text-primary)' }}>
+                      {authStatus?.instagram?.accountName || 'Active Account'}
+                    </span>
+                  )}
+                </div>
+                {!authStatus?.instagram?.connected && authStatus?.facebook?.connected && (
+                  <div style={{ padding: '8px 10px', backgroundColor: '#FEF3C7', borderRadius: '6px', border: '1px solid #FDE68A', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <AlertCircle size={14} color="#D97706" style={{ flexShrink: 0 }} />
+                    <span style={{ fontSize: '11px', color: '#92400E', fontWeight: '600' }}>
+                      No Instagram account linked to page &quot;{authStatus?.facebook?.accountName}&quot;. Link an Instagram account in FB Page Settings to post Reels.
+                    </span>
+                  </div>
+                )}
+              </>
+            )}
+
             {contentPack[activePlatform]?.hook && (
               <div>
                 <label style={{ fontSize: '11px', fontWeight: '700', color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' }}>
@@ -846,54 +966,83 @@ export default function MobileSocialPoster() {
               </button>
             )}
 
-            {/* 2. Instagram */}
-            {authStatus?.instagram?.connected ? (
+            {/* 2 & 3. Meta (Facebook & Instagram) Channels */}
+            {!authStatus?.facebook?.connected && !authStatus?.instagram?.connected ? (
               <button
                 type="button"
-                onClick={() => setSelectedPlatforms((prev) => ({ ...prev, instagram: !prev.instagram }))}
-                className={`channel-pill-toggle ${selectedPlatforms.instagram ? 'active' : 'inactive'}`}
-                title={`Connected: ${authStatus.instagram.accountName}`}
+                onClick={() => handleOpenOAuthPopup('meta')}
+                className="channel-pill-connect"
+                style={{ gridColumn: 'span 2' }}
               >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <Instagram size={14} color="#C13584" />
-                  <span>Instagram</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                  <Facebook size={13} color="#1877F2" />
+                  <Instagram size={13} color="#C13584" />
                 </div>
-                {selectedPlatforms.instagram && <Check size={14} />}
+                <span>Connect Meta (FB & Instagram)</span>
               </button>
             ) : (
-              <button
-                type="button"
-                onClick={() => handleOpenOAuthPopup('instagram')}
-                className="channel-pill-connect"
-              >
-                <Instagram size={13} color="#C13584" />
-                <span>Connect your IG account</span>
-              </button>
-            )}
+              <>
+                {/* 2. Instagram */}
+                {authStatus?.instagram?.connected ? (
+                  <button
+                    type="button"
+                    onClick={() => setSelectedPlatforms((prev) => ({ ...prev, instagram: !prev.instagram }))}
+                    className={`channel-pill-toggle ${selectedPlatforms.instagram ? 'active' : 'inactive'}`}
+                    title={`Connected: ${authStatus.instagram.accountName}`}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '5px', overflow: 'hidden' }}>
+                      <Instagram size={14} color="#C13584" style={{ flexShrink: 0 }} />
+                      <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {authStatus.instagram.accountName || 'Instagram'}
+                      </span>
+                    </div>
+                    {selectedPlatforms.instagram && <Check size={14} style={{ flexShrink: 0 }} />}
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => alert(`Your Facebook Page "${authStatus?.facebook?.accountName}" is connected, but has no linked Instagram Business account.\n\nTo post Instagram Reels, open Facebook Page Settings > Linked Accounts > Instagram and connect your Instagram account, then refresh.`)}
+                    className="channel-pill-connect"
+                    title="No Instagram account linked to this Facebook Page"
+                    style={{ opacity: 0.75 }}
+                  >
+                    <Instagram size={13} color="#C13584" />
+                    <span style={{ fontSize: '11px' }}>No IG linked ⓘ</span>
+                  </button>
+                )}
 
-            {/* 3. Facebook */}
-            {authStatus?.facebook?.connected ? (
-              <button
-                type="button"
-                onClick={() => setSelectedPlatforms((prev) => ({ ...prev, facebook: !prev.facebook }))}
-                className={`channel-pill-toggle ${selectedPlatforms.facebook ? 'active' : 'inactive'}`}
-                title={`Connected: ${authStatus.facebook.accountName}`}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <Facebook size={14} color="#1877F2" />
-                  <span>Facebook</span>
-                </div>
-                {selectedPlatforms.facebook && <Check size={14} />}
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={() => handleOpenOAuthPopup('facebook')}
-                className="channel-pill-connect"
-              >
-                <Facebook size={13} color="#1877F2" />
-                <span>Connect your FB account</span>
-              </button>
+                {/* 3. Facebook */}
+                {authStatus?.facebook?.connected ? (
+                  <button
+                    type="button"
+                    onClick={() => setSelectedPlatforms((prev) => ({ ...prev, facebook: !prev.facebook }))}
+                    className={`channel-pill-toggle ${selectedPlatforms.facebook ? 'active' : 'inactive'}`}
+                    title={`Connected Page: ${authStatus.facebook.accountName}${authStatus?.facebook?.pages?.length > 1 ? ` (${authStatus.facebook.pages.length} pages available)` : ''}`}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '5px', overflow: 'hidden' }}>
+                      <Facebook size={14} color="#1877F2" style={{ flexShrink: 0 }} />
+                      <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {authStatus.facebook.accountName || 'Facebook'}
+                      </span>
+                      {authStatus?.facebook?.pages?.length > 1 && (
+                        <span style={{ fontSize: '9px', backgroundColor: 'rgba(0,0,0,0.06)', padding: '1px 4px', borderRadius: '4px', flexShrink: 0 }}>
+                          {authStatus.facebook.pages.length}p
+                        </span>
+                      )}
+                    </div>
+                    {selectedPlatforms.facebook && <Check size={14} style={{ flexShrink: 0 }} />}
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => handleOpenOAuthPopup('meta')}
+                    className="channel-pill-connect"
+                  >
+                    <Facebook size={13} color="#1877F2" />
+                    <span>Connect FB</span>
+                  </button>
+                )}
+              </>
             )}
 
             {/* 4. TikTok */}
@@ -957,8 +1106,8 @@ export default function MobileSocialPoster() {
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <Zap size={18} color="#3B3B3B" />
-                <h3 style={{ fontSize: '16px', fontWeight: '800', textTransform: 'capitalize' }}>
-                  Connect {connectModalPlatform === 'youtube' ? 'YouTube' : connectModalPlatform === 'instagram' ? 'Instagram' : connectModalPlatform === 'facebook' ? 'Facebook' : 'TikTok'} Account
+                <h3 style={{ fontSize: '16px', fontWeight: '800' }}>
+                  Connect {connectModalPlatform === 'meta' ? 'Meta (Facebook & Instagram)' : connectModalPlatform === 'youtube' ? 'YouTube' : connectModalPlatform === 'tiktok' ? 'TikTok' : connectModalPlatform} Account
                 </h3>
               </div>
               <button
@@ -974,8 +1123,9 @@ export default function MobileSocialPoster() {
             </div>
 
             <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '14px' }}>
-              Authorize SocialPoster to publish videos to your {connectModalPlatform.toUpperCase()} channel for{' '}
-              <strong>{currentUser.email}</strong>.
+              {connectModalPlatform === 'meta'
+                ? `Authorize SocialPoster to publish videos to your Facebook Pages and Instagram Reels for ${currentUser.email}.`
+                : `Authorize SocialPoster to publish videos to your ${connectModalPlatform?.toUpperCase()} channel for ${currentUser.email}.`}
             </p>
 
             {/* Status / Error Message */}
@@ -996,7 +1146,11 @@ export default function MobileSocialPoster() {
               style={{ marginBottom: '16px' }}
             >
               <ExternalLink size={15} />
-              <span>Authorize with Official {connectModalPlatform === 'youtube' ? 'YouTube' : connectModalPlatform === 'instagram' ? 'Instagram' : connectModalPlatform === 'facebook' ? 'Facebook' : 'TikTok'}</span>
+              <span>
+                {connectModalPlatform === 'meta'
+                  ? 'Authorize with Official Meta (Facebook & Instagram)'
+                  : `Authorize with Official ${connectModalPlatform === 'youtube' ? 'YouTube' : connectModalPlatform === 'tiktok' ? 'TikTok' : connectModalPlatform}`}
+              </span>
             </button>
 
             {/* Or Paste Direct Access Token (Developer Fallback) */}
